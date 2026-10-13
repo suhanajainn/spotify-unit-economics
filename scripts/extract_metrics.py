@@ -7,7 +7,7 @@ blank and listed in the output.
 
 Sources inside each deck:
   - "User, Financial & Liquidity Summary" table (last quarter column):
-    total MAUs, Premium subscribers, Premium revenue, Ad-Supported revenue,
+    total MAUs, Premium subscribers, Ad-Supported MAUs, Premium revenue, Ad-Supported revenue,
     total gross margin
   - IFRS condensed consolidated statement of operations (first column):
     sales and marketing, operating income
@@ -37,6 +37,7 @@ OUT_CSV = ROOT / "data" / "quarterly_metrics.csv"
 COLUMNS = [
     ("total_maus_m", "Total MAUs (M)"),
     ("premium_subscribers_m", "Premium subscribers (M)"),
+    ("ad_supported_maus_m", "Ad-Supported MAUs (M)"),
     ("premium_revenue_eur_m", "Premium revenue (€M)"),
     ("ad_supported_revenue_eur_m", "Ad-Supported revenue (€M)"),
     ("premium_arpu_eur", "Premium ARPU (€)"),
@@ -74,6 +75,7 @@ QUARTER_END = {1: "March 31", 2: "June 30", 3: "September 30", 4: "December 31"}
 SUMMARY_ROWS = {
     r'Total Monthly Active Users \("MAUs"\)': "total_maus_m",
     r"Premium Subscribers": "premium_subscribers_m",
+    r"Ad-Supported MAUs": "ad_supported_maus_m",
     r"Premium": "premium_revenue_eur_m",
     r"Ad-Supported": "ad_supported_revenue_eur_m",
     r"Gross Margin": "total_gross_margin_pct",
@@ -336,13 +338,13 @@ def main():
     keys = [key for key, _ in COLUMNS]
     print_table(
         "As reported in each quarter's deck",
-        keys[:10],
-        ["MAUs", "Subs", "Prem rev", "Ad rev", "ARPU", "Prem GM%", "Ad GM%", "GM%", "S&M", "Op inc"],
+        keys[:11],
+        ["MAUs", "Subs", "Ad MAUs", "Prem rev", "Ad rev", "ARPU", "Prem GM%", "Ad GM%", "GM%", "S&M", "Op inc"],
     )
     print()
     print_table(
         "Segments restated to the 2026 basis",
-        keys[10:],
+        keys[11:],
         ["Prem rev", "Ad rev", "Prem GM%", "Ad GM%"],
     )
     print("\nUnits: MAUs/subs in millions; revenue, S&M, operating income in €M; ARPU in €; margins in %.")
