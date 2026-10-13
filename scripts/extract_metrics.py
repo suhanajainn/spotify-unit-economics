@@ -41,6 +41,7 @@ COLUMNS = [
     ("premium_revenue_eur_m", "Premium revenue (€M)"),
     ("ad_supported_revenue_eur_m", "Ad-Supported revenue (€M)"),
     ("premium_arpu_eur", "Premium ARPU (€)"),
+    ("premium_arpu_yoy_constant_currency_pct", "Premium ARPU Y/Y, constant currency (%)"),
     ("premium_gross_margin_pct", "Premium gross margin (%)"),
     ("ad_supported_gross_margin_pct", "Ad-Supported gross margin (%)"),
     ("total_gross_margin_pct", "Total gross margin (%)"),
@@ -50,6 +51,7 @@ COLUMNS = [
     ("ad_supported_revenue_restated_eur_m", "Restated Ad-Supported revenue (€M)"),
     ("premium_gross_margin_restated_pct", "Restated Premium gross margin (%)"),
     ("ad_supported_gross_margin_restated_pct", "Restated Ad-Supported gross margin (%)"),
+    ("opex_social_charges_eur_m", "Social Charges in operating expenses (€M)"),
 ]
 
 # Effective 2026-01-01 Spotify moved some activities from Ad-Supported to Premium.
@@ -207,12 +209,35 @@ def unique_match(pattern, text, key, notes):
     return None
 
 
+def arpu_constant_currency(text, notes):
+    """Y/Y Premium ARPU growth in constant currency, as stated next to ARPU.
+
+    Phrasings seen: "(or down 1% constant currency", "(or up 5.7% Y/Y constant
+    currency", "(or 7.4% Y/Y constant currency", "(or flat Y/Y constant currency".
+    """
+    values = set()
+    for m in re.finditer(r"ARPU\W[^€]{0,90}€ ?\d+\.\d+[^()]{0,20}\(or ([^)]*?)constant currency", text):
+        phrase = m.group(1)
+        if re.match(r"flat\b", phrase):
+            values.add(0.0)
+            continue
+        n = re.match(r"(up |down )?(\d+(?:\.\d+)?)%", phrase)
+        if n:
+            values.add(-float(n.group(2)) if n.group(1) == "down " else float(n.group(2)))
+    if len(values) == 1:
+        return values.pop()
+    if len(values) > 1:
+        notes.append(f"premium_arpu_yoy_constant_currency_pct: ambiguous matches {sorted(values)}")
+    return None
+
+
 def parse_narrative(pages, notes):
     text = re.sub(r"\s+", " ", " ".join(pages))
     return {
         "premium_arpu_eur": unique_match(
             r"ARPU\W[^€]{0,90}€ ?(\d+\.\d+)", text, "premium_arpu_eur", notes
         ),
+        "premium_arpu_yoy_constant_currency_pct": arpu_constant_currency(text, notes),
         "premium_gross_margin_pct": unique_match(
             r"Premium Gross Margin\** (?:was|of) (\d+(?:\.\d+)?)%", text, "premium_gross_margin_pct", notes
         ),
@@ -297,6 +322,37 @@ def add_restated(results, pdfs):
         row["restated_source"] = "; ".join(sorted(sources))
 
 
+def add_social_charges(results):
+    """Social Charges (payroll taxes on share-based comp) in operating expenses.
+
+    Spotify states this for the current quarter and, a year later, as the
+    prior-year comparison. It is a total across R&D, S&M and G&A; the decks
+    don't split it by line. A value is kept only if every statement agrees.
+    Statements that don't say the amount is in Operating Expenses are ignored.
+    """
+    candidates = {}
+    current = [
+        r"(?<!Prior year period )Operating Expenses included (\(?€\s?\d+\)?) million in Social Charges",
+        r"Social Charges related to share-based compensation of €(\d+) million in (?:the )?current period Operating Expenses",
+        r"Social Charges related to share-based compensation of €\d+ million in the current period, €(\d+) million of which were in Operating Expenses",
+    ]
+    prior = r"Prior year period Operating Expenses included (\(?€\s?\d+\)?) million in Social Charges"
+    for quarter, _, _, pages in results:
+        text = re.sub(r"\s+", " ", " ".join(pages))
+        year, q = int(quarter[:4]), quarter[-2:]
+        for pattern in current:
+            for m in re.finditer(pattern, text):
+                candidates.setdefault(quarter, set()).add(to_number(m.group(1).replace("€", "")))
+        for m in re.finditer(prior, text):
+            candidates.setdefault(f"{year - 1}_{q}", set()).add(to_number(m.group(1).replace("€", "")))
+    for quarter, row, notes, _ in results:
+        values = candidates.get(quarter, set())
+        if len(values) == 1:
+            row["opex_social_charges_eur_m"] = values.pop()
+        elif len(values) > 1:
+            notes.append(f"opex_social_charges_eur_m: sources disagree {sorted(values)}")
+
+
 def fmt(value):
     if value is None:
         return ""
@@ -310,6 +366,7 @@ def main():
 
     results = [extract(p) for p in pdfs]
     add_restated(results, pdfs)
+    add_social_charges(results)
 
     with open(OUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
@@ -338,13 +395,13 @@ def main():
     keys = [key for key, _ in COLUMNS]
     print_table(
         "As reported in each quarter's deck",
-        keys[:11],
-        ["MAUs", "Subs", "Ad MAUs", "Prem rev", "Ad rev", "ARPU", "Prem GM%", "Ad GM%", "GM%", "S&M", "Op inc"],
+        keys[:12],
+        ["MAUs", "Subs", "Ad MAUs", "Prem rev", "Ad rev", "ARPU", "ARPU cc%", "Prem GM%", "Ad GM%", "GM%", "S&M", "Op inc"],
     )
     print()
     print_table(
         "Segments restated to the 2026 basis",
-        keys[11:],
+        keys[12:16],
         ["Prem rev", "Ad rev", "Prem GM%", "Ad GM%"],
     )
     print("\nUnits: MAUs/subs in millions; revenue, S&M, operating income in €M; ARPU in €; margins in %.")

@@ -1,13 +1,13 @@
-quarter,reported_segment_basis,total_maus_m,premium_subscribers_m,ad_supported_maus_m,premium_revenue_eur_m,ad_supported_revenue_eur_m,premium_arpu_eur,premium_gross_margin_pct,ad_supported_gross_margin_pct,total_gross_margin_pct,sales_and_marketing_eur_m,operating_income_eur_m,premium_revenue_restated_eur_m,ad_supported_revenue_restated_eur_m,premium_gross_margin_restated_pct,ad_supported_gross_margin_restated_pct,source_file,restated_source
-2023_Q3,pre-2026 (original),574,226,361,2910,447,4.34,29.1,8.3,26.4,355,32,,,,,data/raw/2023_Q3.pdf,
-2023_Q4,pre-2026 (original),602,236,379,3170,501,4.6,29.1,11.6,26.7,432,-75,,,,,data/raw/2023_Q4.pdf,
-2024_Q1,pre-2026 (original),615,239,388,3247,389,4.55,30.2,6.4,27.6,324,168,3259,377,30.2,5,data/raw/2024_Q1.pdf,2026_Q1.pdf
-2024_Q2,pre-2026 (original),626,246,393,3351,456,4.62,31.4,13.4,29.2,343,266,3365,442,31.4,12.2,data/raw/2024_Q2.pdf,2026_Q1.pdf
-2024_Q3,pre-2026 (original),640,252,402,3516,472,4.71,33.5,13.1,31.1,332,454,3530,458,33.5,12.2,data/raw/2024_Q3.pdf,2026_Q1.pdf
-2024_Q4,pre-2026 (original),675,263,425,3705,537,4.85,34.7,15.1,32.2,393,477,3721,521,34.8,13.8,data/raw/2024_Q4.pdf,2026_Q1.pdf
-2025_Q1,pre-2026 (original),678,268,423,3771,419,4.73,33.5,15.3,31.6,314,509,3783,407,33.5,14,data/raw/2025_Q1.pdf,2026_Q1.pdf
-2025_Q2,pre-2026 (original),696,276,433,3740,453,4.57,33.1,18.3,31.5,364,406,3753,440,33.1,17.3,data/raw/2025_Q2.pdf,2026_Q1.pdf; 2026_Q2.pdf
-2025_Q3,pre-2026 (original),713,281,446,3826,446,4.53,33.2,18.4,31.6,349,582,3835,437,33.2,17.6,data/raw/2025_Q3.pdf,2026_Q1.pdf; 2026_Q2.pdf
-2025_Q4,pre-2026 (original),751,290,476,4013,518,4.7,34.8,19.5,33.1,399,701,4020,511,34.8,20,data/raw/2025_Q4.pdf,2026_Q1.pdf; 2026_Q2.pdf
-2026_Q1,2026 (reclassified),761,293,483,4148,385,4.76,34.8,13,33,342,715,4148,385,34.8,13,data/raw/2026_Q1.pdf,2026_Q1.pdf; 2026_Q2.pdf
-2026_Q2,2026 (reclassified),777,300,494,4331,446,4.89,34.9,19.1,33.4,390,655,4331,446,34.9,19.1,data/raw/2026_Q2.pdf,2026_Q2.pdf
+quarter,reported_segment_basis,total_maus_m,premium_subscribers_m,ad_supported_maus_m,premium_revenue_eur_m,ad_supported_revenue_eur_m,premium_arpu_eur,premium_arpu_yoy_constant_currency_pct,premium_gross_margin_pct,ad_supported_gross_margin_pct,total_gross_margin_pct,sales_and_marketing_eur_m,operating_income_eur_m,premium_revenue_restated_eur_m,ad_supported_revenue_restated_eur_m,premium_gross_margin_restated_pct,ad_supported_gross_margin_restated_pct,opex_social_charges_eur_m,source_file,restated_source
+2023_Q3,pre-2026 (original),574,226,361,2910,447,4.34,-1,29.1,8.3,26.4,355,32,,,,,1,data/raw/2023_Q3.pdf,
+2023_Q4,pre-2026 (original),602,236,379,3170,501,4.6,5,29.1,11.6,26.7,432,-75,,,,,33,data/raw/2023_Q4.pdf,
+2024_Q1,pre-2026 (original),615,239,388,3247,389,4.55,7,30.2,6.4,27.6,324,168,3259,377,30.2,5,82,data/raw/2024_Q1.pdf,2026_Q1.pdf
+2024_Q2,pre-2026 (original),626,246,393,3351,456,4.62,10,31.4,13.4,29.2,343,266,3365,442,31.4,12.2,58,data/raw/2024_Q2.pdf,2026_Q1.pdf
+2024_Q3,pre-2026 (original),640,252,402,3516,472,4.71,11,33.5,13.1,31.1,332,454,3530,458,33.5,12.2,53,data/raw/2024_Q3.pdf,2026_Q1.pdf
+2024_Q4,pre-2026 (original),675,263,425,3705,537,4.85,7,34.7,15.1,32.2,393,477,3721,521,34.8,13.8,97,data/raw/2024_Q4.pdf,2026_Q1.pdf
+2025_Q1,pre-2026 (original),678,268,423,3771,419,4.73,4,33.5,15.3,31.6,314,509,3783,407,33.5,14,75,data/raw/2025_Q1.pdf,2026_Q1.pdf
+2025_Q2,pre-2026 (original),696,276,433,3740,453,4.57,3,33.1,18.3,31.5,364,406,3753,440,33.1,17.3,115,data/raw/2025_Q2.pdf,2026_Q1.pdf; 2026_Q2.pdf
+2025_Q3,pre-2026 (original),713,281,446,3826,446,4.53,0,33.2,18.4,31.6,349,582,3835,437,33.2,17.6,-16,data/raw/2025_Q3.pdf,2026_Q1.pdf; 2026_Q2.pdf
+2025_Q4,pre-2026 (original),751,290,476,4013,518,4.7,2,34.8,19.5,33.1,399,701,4020,511,34.8,20,-50,data/raw/2025_Q4.pdf,2026_Q1.pdf; 2026_Q2.pdf
+2026_Q1,2026 (reclassified),761,293,483,4148,385,4.76,5.7,34.8,13,33,342,715,4148,385,34.8,13,-39,data/raw/2026_Q1.pdf,2026_Q1.pdf; 2026_Q2.pdf
+2026_Q2,2026 (reclassified),777,300,494,4331,446,4.89,7.4,34.9,19.1,33.4,390,655,4331,446,34.9,19.1,1,data/raw/2026_Q2.pdf,2026_Q2.pdf
