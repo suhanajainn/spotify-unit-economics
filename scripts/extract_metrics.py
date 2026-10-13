@@ -39,7 +39,23 @@ COLUMNS = [
     ("total_gross_margin_pct", "Total gross margin (%)"),
     ("sales_and_marketing_eur_m", "Sales & marketing (€M)"),
     ("operating_income_eur_m", "Operating income (€M)"),
+    ("premium_revenue_restated_eur_m", "Restated Premium revenue (€M)"),
+    ("ad_supported_revenue_restated_eur_m", "Restated Ad-Supported revenue (€M)"),
+    ("premium_gross_margin_restated_pct", "Restated Premium gross margin (%)"),
+    ("ad_supported_gross_margin_restated_pct", "Restated Ad-Supported gross margin (%)"),
 ]
+
+# Effective 2026-01-01 Spotify moved some activities from Ad-Supported to Premium.
+# Decks for quarters from this one onward report segments on the new basis.
+RECLASS_FROM = (2026, 1)
+
+# Restated column -> matching as-reported column.
+RESTATED = {
+    "premium_revenue_restated_eur_m": "premium_revenue_eur_m",
+    "ad_supported_revenue_restated_eur_m": "ad_supported_revenue_eur_m",
+    "premium_gross_margin_restated_pct": "premium_gross_margin_pct",
+    "ad_supported_gross_margin_restated_pct": "ad_supported_gross_margin_pct",
+}
 
 QUARTER_END = {1: "March 31", 2: "June 30", 3: "September 30", 4: "December 31"}
 
@@ -67,9 +83,8 @@ def page_texts(pdf_path):
         return [page.extract_text() or "" for page in pdf.pages]
 
 
-def parse_summary_table(pages, year, q, notes):
-    """Current-quarter values from the 5-quarter summary table."""
-    label = f"Q{q} {year}"
+def summary_table(pages):
+    """All columns of the 5-quarter summary table: {"Q1 2026": {key: value}}."""
     for text in pages:
         lines = text.splitlines()
         header = next(
@@ -78,22 +93,72 @@ def parse_summary_table(pages, year, q, notes):
         if header is None:
             continue
         quarters = re.findall(r"Q[1-4] \d{4}", lines[header])
-        if not quarters or quarters[-1] != label:
-            notes.append(f"summary table header {quarters} does not end in {label}")
-            return {}
-        col = len(quarters) - 1
-        found = {}
+        table = {quarter: {} for quarter in quarters}
         for line in lines[header + 1 :]:
             for pattern, key in SUMMARY_ROWS.items():
                 m = re.match(rf"{pattern}\**((?: {NUM})+)", line)
-                if not m or key in found:
+                if not m or key in table[quarters[-1]]:
                     continue
                 values = m.group(1).split()
-                if len(values) > col:
-                    found[key] = to_number(values[col])
-        return found
-    notes.append("summary table not found")
-    return {}
+                if len(values) >= len(quarters):
+                    for quarter, value in zip(quarters, values):
+                        table[quarter][key] = to_number(value)
+        return table
+    return None
+
+
+def parse_summary_table(pages, year, q, notes):
+    """Current-quarter values from the 5-quarter summary table."""
+    label = f"Q{q} {year}"
+    table = summary_table(pages)
+    if table is None:
+        notes.append("summary table not found")
+        return {}
+    quarters = list(table)
+    if not quarters or quarters[-1] != label:
+        notes.append(f"summary table header {quarters} does not end in {label}")
+        return {}
+    return table[label]
+
+
+def segment_reclassification_table(pages):
+    """Restated segment figures from the 'Segment Reclassification' appendix.
+
+    Returns {"Q1 2024": {key: value}}, quarterly columns only (annual totals dropped).
+    """
+    for text in pages:
+        lines = text.splitlines()
+        header = next(
+            (i for i, l in enumerate(lines) if l.startswith("SEGMENT RECLASSIFICATION")), None
+        )
+        if header is None:
+            continue
+        columns = re.findall(r"Q[1-4] \d{4}|\d{4}", lines[header])
+        table = {c: {} for c in columns if c.startswith("Q")}
+        previous = ""
+        for line in lines[header + 1 :]:
+            key = None
+            if re.match(r"Premium\*? \d", line):
+                key = "premium_revenue_restated_eur_m"
+            elif re.match(r"Ad-Supported\*? \d", line):
+                key = "ad_supported_revenue_restated_eur_m"
+            elif line.startswith("Gross Margin (%)") and previous.startswith("Premium Gross Profit"):
+                key = "premium_gross_margin_restated_pct"
+            elif line.startswith("Gross Margin (%)") and previous.startswith("Ad-Supported Gross Profit"):
+                key = "ad_supported_gross_margin_restated_pct"
+            elif line.startswith("Total Gross Margin (%)"):
+                key = "total_gross_margin_pct"
+            previous = line
+            if key is None:
+                continue
+            values = re.findall(NUM, line)
+            if len(values) != len(columns):
+                continue
+            for column, value in zip(columns, values):
+                if column in table:
+                    table[column][key] = to_number(value)
+        return table
+    return None
 
 
 def parse_income_statement(pages, year, q, notes):
@@ -162,7 +227,61 @@ def extract(pdf_path):
     if None not in (prem, ad, revenue) and prem + ad != revenue:
         notes.append(f"segment revenue {prem:,.0f} + {ad:,.0f} != IFRS revenue {revenue:,.0f}")
 
-    return f"{year}_Q{q}", row, notes
+    return f"{year}_Q{q}", row, notes, pages
+
+
+def add_restated(results, pdfs):
+    """Fill restated segment columns on the post-2026 basis.
+
+    Candidate values come from (a) the Segment Reclassification appendix,
+    (b) prior-quarter columns in new-basis decks' summary tables, and (c) a
+    new-basis deck's own current-quarter figures. A value is kept only if all
+    candidates agree; otherwise it's left blank and noted.
+    """
+    candidates = {}  # (quarter, key) -> {value: [source, ...]}
+
+    def offer(quarter, key, value, source):
+        candidates.setdefault((quarter, key), {}).setdefault(value, []).append(source)
+
+    for (quarter, row, notes, pages), pdf in zip(results, pdfs):
+        year, q = int(quarter[:4]), int(quarter[-1])
+        if (year, q) < RECLASS_FROM:
+            continue
+        for restated_key, reported_key in RESTATED.items():
+            if row[reported_key] is not None:
+                offer(quarter, restated_key, row[reported_key], pdf.name)
+
+        reclass = segment_reclassification_table(pages) or {}
+        summary = summary_table(pages) or {}
+        for label, values in reclass.items():
+            target = label[-4:] + "_Q" + label[1]
+            for key in RESTATED:
+                if key in values:
+                    offer(target, key, values[key], f"{pdf.name} segment reclassification")
+            # Sanity check: total gross margin isn't affected by the reclassification.
+            for _, other_row, other_notes, _ in (r for r in results if r[0] == target):
+                total = values.get("total_gross_margin_pct")
+                if total is not None and other_row["total_gross_margin_pct"] not in (None, total):
+                    other_notes.append(
+                        f"{pdf.name} reclassification table total GM {total} != reported {other_row['total_gross_margin_pct']}"
+                    )
+        for label, values in list(summary.items())[:-1]:
+            target = label[-4:] + "_Q" + label[1]
+            for restated_key, reported_key in RESTATED.items():
+                if reported_key in values:
+                    offer(target, restated_key, values[reported_key], f"{pdf.name} summary table")
+
+    for quarter, row, notes, _ in results:
+        sources = set()
+        for key in RESTATED:
+            options = candidates.get((quarter, key), {})
+            if len(options) == 1:
+                (value, srcs), = options.items()
+                row[key] = value
+                sources.update(s.split()[0] for s in srcs)
+            elif len(options) > 1:
+                notes.append(f"{key}: sources disagree {options}")
+        row["restated_source"] = "; ".join(sorted(sources))
 
 
 def fmt(value):
@@ -177,24 +296,43 @@ def main():
         sys.exit(f"No decks found in {RAW_DIR}")
 
     results = [extract(p) for p in pdfs]
+    add_restated(results, pdfs)
 
     with open(OUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["quarter"] + [key for key, _ in COLUMNS] + ["source_file"])
-        for (quarter, row, _), pdf in zip(results, pdfs):
-            writer.writerow([quarter] + [fmt(row[key]) for key, _ in COLUMNS] + [pdf.relative_to(ROOT)])
+        writer.writerow(["quarter"] + [key for key, _ in COLUMNS] + ["source_file", "restated_source"])
+        for (quarter, row, _, _), pdf in zip(results, pdfs):
+            writer.writerow(
+                [quarter]
+                + [fmt(row[key]) for key, _ in COLUMNS]
+                + [pdf.relative_to(ROOT), row["restated_source"]]
+            )
 
-    short = ["MAUs", "Subs", "Prem rev", "Ad rev", "ARPU", "Prem GM%", "Ad GM%", "GM%", "S&M", "Op inc"]
-    widths = [max(len(h), 7) for h in short]
-    print("quarter  " + "  ".join(h.rjust(w) for h, w in zip(short, widths)))
-    for quarter, row, _ in results:
-        cells = [(fmt(row[key]) or "—").rjust(w) for (key, _), w in zip(COLUMNS, widths)]
-        print(f"{quarter}  " + "  ".join(cells))
+    def print_table(title, keys, headers):
+        widths = [max(len(h), 7) for h in headers]
+        print(title)
+        print("quarter  " + "  ".join(h.rjust(w) for h, w in zip(headers, widths)))
+        for quarter, row, _, _ in results:
+            cells = [(fmt(row[key]) or "—").rjust(w) for key, w in zip(keys, widths)]
+            print(f"{quarter}  " + "  ".join(cells))
+
+    keys = [key for key, _ in COLUMNS]
+    print_table(
+        "As reported in each quarter's deck",
+        keys[:10],
+        ["MAUs", "Subs", "Prem rev", "Ad rev", "ARPU", "Prem GM%", "Ad GM%", "GM%", "S&M", "Op inc"],
+    )
+    print()
+    print_table(
+        "Segments restated to the 2026 basis",
+        keys[10:],
+        ["Prem rev", "Ad rev", "Prem GM%", "Ad GM%"],
+    )
     print("\nUnits: MAUs/subs in millions; revenue, S&M, operating income in €M; ARPU in €; margins in %.")
 
     print("\nMissing metrics:")
     any_missing = False
-    for quarter, row, _ in results:
+    for quarter, row, _, _ in results:
         missing = [label for key, label in COLUMNS if row[key] is None]
         if missing:
             any_missing = True
@@ -203,7 +341,7 @@ def main():
         print("  none")
 
     print("\nExtraction notes:")
-    notes = [(quarter, n) for quarter, _, ns in results for n in ns]
+    notes = [(quarter, n) for quarter, _, ns, _ in results for n in ns]
     for quarter, n in notes:
         print(f"  {quarter}: {n}")
     if not notes:
