@@ -12,6 +12,12 @@ Sources inside each deck:
   - IFRS condensed consolidated statement of operations (first column):
     sales and marketing, operating income
   - Narrative text: Premium ARPU, Premium and Ad-Supported gross margin
+
+Effective 2026-01-01 Spotify moved some activities from Ad-Supported to
+Premium. The as-reported segment columns use whichever definition was in
+force for that quarter (see reported_segment_basis). The *_restated columns
+are all on the 2026 definition, taken from the 2026 decks; quarters the
+decks don't restate in text are left blank.
 """
 
 import csv
@@ -48,6 +54,11 @@ COLUMNS = [
 # Effective 2026-01-01 Spotify moved some activities from Ad-Supported to Premium.
 # Decks for quarters from this one onward report segments on the new basis.
 RECLASS_FROM = (2026, 1)
+
+# Values for the reported_segment_basis column: which segment definition the
+# as-reported Premium/Ad-Supported columns use. Restated columns are always "2026".
+BASIS_ORIGINAL = "pre-2026 (original)"
+BASIS_2026 = "2026 (reclassified)"
 
 # Restated column -> matching as-reported column.
 RESTATED = {
@@ -300,10 +311,16 @@ def main():
 
     with open(OUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["quarter"] + [key for key, _ in COLUMNS] + ["source_file", "restated_source"])
+        writer.writerow(
+            ["quarter", "reported_segment_basis"]
+            + [key for key, _ in COLUMNS]
+            + ["source_file", "restated_source"]
+        )
         for (quarter, row, _, _), pdf in zip(results, pdfs):
+            year, q = int(quarter[:4]), int(quarter[-1])
+            basis = BASIS_2026 if (year, q) >= RECLASS_FROM else BASIS_ORIGINAL
             writer.writerow(
-                [quarter]
+                [quarter, basis]
                 + [fmt(row[key]) for key, _ in COLUMNS]
                 + [pdf.relative_to(ROOT), row["restated_source"]]
             )
