@@ -2,8 +2,14 @@
 
 Run with: streamlit run app.py
 
-Reads data/quarterly_metrics.csv and assumptions.md, and reuses the
-calculations in scripts/model.py so the dashboard and outputs/ agree.
+Reads two existing CSV files and nothing else at startup:
+  - data/quarterly_metrics.csv  (reported data, from scripts/extract_metrics.py)
+  - outputs/unit_economics.csv  (calculated metrics and churn cases, from scripts/model.py)
+It runs no data extraction and downloads nothing. After changing the decks or
+assumptions.md, regenerate the CSVs with those two scripts.
+
+scripts/model.py is imported only for its pure helper functions (window
+calculations, labels); importing it reads no files.
 All amounts are in euros, as reported by Spotify.
 """
 
@@ -19,6 +25,11 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import model  # noqa: E402
 
+METRICS_CSV = ROOT / "data" / "quarterly_metrics.csv"
+UNIT_ECONOMICS_CSV = ROOT / "outputs" / "unit_economics.csv"
+TEXT_COLUMNS = {"quarter", "reported_segment_basis", "source_file", "restated_source",
+                "premium_gross_margin_basis", "sm_distortion_flag"}
+
 REPO_URL = "https://github.com/suhanajainn/spotify-unit-economics"
 ASSUMPTIONS_URL = f"{REPO_URL}/blob/main/assumptions.md"
 
@@ -33,21 +44,26 @@ st.set_page_config(page_title="Spotify Premium unit economics", layout="wide")
 
 # ---------------------------------------------------------------- data
 
+def read_csv(path):
+    """Rows as dicts: numbers as floats, blanks as None, text columns unchanged."""
+    with open(path) as f:
+        return [
+            {k: v if k in TEXT_COLUMNS else (float(v) if v != "" else None) for k, v in row.items()}
+            for row in csv.DictReader(f)
+        ]
+
+
 @st.cache_data
 def load():
-    with open(model.METRICS_CSV) as f:
-        metrics = list(csv.DictReader(f))
-    churn_cases = model.read_churn_cases(model.ASSUMPTIONS_MD)
-    rows = model.build_rows(metrics, churn_cases)
+    metrics = read_csv(METRICS_CSV)
+    rows = read_csv(UNIT_ECONOMICS_CSV)
+    churn_cases = {case: rows[0][f"monthly_churn_pct_{case}"] / 100 for case in model.CASES}
     return metrics, churn_cases, rows
 
 
 metrics, churn_cases, rows = load()
 df = pd.DataFrame(rows)
 raw = pd.DataFrame(metrics)
-for col in raw.columns:
-    if col not in ("quarter", "reported_segment_basis", "source_file", "restated_source"):
-        raw[col] = pd.to_numeric(raw[col], errors="coerce")
 df["label"] = df["quarter"].map(model.label)
 raw["label"] = raw["quarter"].map(model.label)
 
