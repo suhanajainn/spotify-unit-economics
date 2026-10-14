@@ -276,19 +276,10 @@ with p2:
                             help="Extra subscribers cancelling each month because of the higher price, "
                                  "added to the churn above.")
 
-new_churn = churn + churn_up_pp / 100
-new_gp = gp_ltm * (1 + price_pct / 100)
-ltv_before, ltv_after = gp_ltm / churn, new_gp / new_churn
-break_even_pp = price_pct / 100 * churn * 100  # churn increase at which LTV is unchanged
-
-
-def cohort_gross_profit(n0, gp, c, months=12):
-    """Gross profit from today's subscribers over `months`, with no new sign-ups (€M)."""
-    return sum(n0 * (1 - c) ** t * gp for t in range(months))
-
-
-gp12_before = cohort_gross_profit(subs_now, gp_ltm, churn)
-gp12_after = cohort_gross_profit(subs_now, new_gp, new_churn)
+sim = model.price_scenario(gp_ltm, churn, subs_now, price_pct, churn_up_pp / 100)
+ltv_before, ltv_after = sim["lifetime_gp_before"], sim["lifetime_gp_after"]
+gp12_before, gp12_after = sim["gp12_before"], sim["gp12_after"]
+break_even_pp = sim["break_even_churn_increase"] * 100  # churn increase at which LTV is unchanged
 
 r1, r2, r3 = st.columns(3)
 r1.metric("Lifetime gross profit per subscriber", f"€{ltv_after:.0f}", f"{eur_delta(ltv_after - ltv_before)} vs €{ltv_before:.0f} today")

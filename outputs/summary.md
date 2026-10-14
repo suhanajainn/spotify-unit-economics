@@ -117,6 +117,29 @@ Consequences:
 - We have no data on how many ad-supported users convert to Premium, so this analysis can't
   value the free tier as a pipeline.
 
+## 4. Price increase scenarios (estimates)
+
+From `outputs/scenarios.csv`. Holds Premium gross margin % constant (music costs are largely a
+share of revenue), assumes the price increase passes fully into ARPU, and uses the elasticity
+range in `assumptions.md`. Change in long-run Premium gross profit:
+
+| Price increase | Low sensitivity (-0.2) | Base (-0.5) | High sensitivity (-1.0) |
+|---|---|---|---|
+| 5% | +4.0% | +2.4% | -0.2% |
+| 10% | +7.8% | +4.5% | -1.0% |
+| 15% | +11.6% | +6.4% | -2.2% |
+| 20% | +15.2% | +8.0% | -4.0% |
+
+- **The verdict depends on elasticity, not churn.** Long-run gross profit changes by
+  (1 + price increase) × (1 − |elasticity| × price increase), whatever the churn level, and whether
+  lost demand shows up as more cancellations or fewer sign-ups. A 10% increase pays off as long as
+  elasticity is less negative than -0.91.
+- **Only the high-sensitivity case (−1.0) loses money**, and only slightly (-4.0% at
+  20%). The base case (−0.5) gains +4.5% at 10%.
+- **Twelve-month results can't tell you whether it worked.** Gross profit from today's subscribers rises
+  in the first year in every scenario (by €205M–€956M), including those that lose
+  money long-term, because higher churn compounds slowly.
+
 ## What this analysis can't tell you
 
 - **Whether retention improved or worsened.** Churn is an assumption held constant.

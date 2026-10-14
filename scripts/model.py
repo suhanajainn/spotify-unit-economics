@@ -49,6 +49,10 @@ METRICS_CSV = ROOT / "data" / "quarterly_metrics.csv"
 ASSUMPTIONS_MD = ROOT / "assumptions.md"
 OUT_CSV = ROOT / "outputs" / "unit_economics.csv"
 OUT_MD = ROOT / "outputs" / "summary.md"
+OUT_SCENARIOS = ROOT / "outputs" / "scenarios.csv"
+
+PRICE_STEPS_PCT = (5, 10, 15, 20)  # Premium price increases to test
+ELASTICITY_CASES = {"low sensitivity": "Low sensitivity", "base": "Base", "high sensitivity": "High sensitivity"}
 
 CASES = ("low", "base", "high")  # churn cases from assumptions.md
 
@@ -73,6 +77,61 @@ def read_churn_cases(path):
             sys.exit(f"Couldn't find the {case}-case churn row in {path}")
         cases[case] = float(m.group(1)) / 100
     return cases
+
+
+def read_elasticity_cases(path):
+    """Low/base/high price elasticity from section 3 of assumptions.md."""
+    text = path.read_text()
+    section = re.search(r"^## 3\. Price elasticity.*?$(.*)", text, re.M | re.S)
+    if not section:
+        sys.exit(f"Couldn't find the elasticity section in {path}")
+    cases = {}
+    for case, row_label in ELASTICITY_CASES.items():
+        m = re.search(rf"^\| {row_label} \| \*\*([−-]\d+(?:\.\d+)?)\*\* \|", section.group(1), re.M)
+        if not m:
+            sys.exit(f"Couldn't find the {case} elasticity row in {path}")
+        cases[case] = float(m.group(1).replace("−", "-"))
+    return cases
+
+
+def cohort_gross_profit(subs_m, gp_month, churn, months=12):
+    """Gross profit (€M) from today's subscribers over `months`, with no new sign-ups. Undiscounted."""
+    return sum(subs_m * (1 - churn) ** t * gp_month for t in range(months))
+
+
+def implied_churn_increase(churn, elasticity, price_pct):
+    """Churn increase (fraction) that shrinks the steady-state subscriber base by |elasticity| × price.
+
+    Steady-state subscribers = gross adds / churn. Holding gross adds constant,
+    a base that is |e|·p smaller needs churn c / (1 − |e|·p).
+    """
+    shrink = abs(elasticity) * price_pct / 100
+    return churn * shrink / (1 - shrink)
+
+
+def price_scenario(gp_month, churn, subs_m, price_pct, churn_increase):
+    """Effect of a Premium price increase, holding gross margin % constant.
+
+    Lifetime gross profit per subscriber is gp/churn. With gross adds held
+    constant, steady-state total gross profit is gross adds × lifetime gross
+    profit, so its % change equals the % change in lifetime gross profit.
+    """
+    new_churn = churn + churn_increase
+    new_gp = gp_month * (1 + price_pct / 100)
+    before, after = gp_month / churn, new_gp / new_churn
+    gp12_before = cohort_gross_profit(subs_m, gp_month, churn)
+    gp12_after = cohort_gross_profit(subs_m, new_gp, new_churn)
+    return {
+        "new_churn": new_churn,
+        "gp_month_after": new_gp,
+        "lifetime_gp_before": before,
+        "lifetime_gp_after": after,
+        "steady_state_change_pct": (after / before - 1) * 100,
+        "gp12_before": gp12_before,
+        "gp12_after": gp12_after,
+        "break_even_churn_increase": price_pct / 100 * churn,
+        "break_even_elasticity": -1 / (1 + price_pct / 100),
+    }
 
 
 def num(value):
@@ -203,7 +262,7 @@ def window_estimates(window, c):
             "gross_new": gross_new, "net_new": net_new}
 
 
-def write_summary(rows, churn):
+def write_summary(rows, churn, scenarios):
     latest, prior = rows[-4:], rows[-8:-4]
     lw, pw = window_label(latest), window_label(prior)
 
@@ -239,6 +298,24 @@ def write_summary(rows, churn):
         e = est[case]
         return (f"| {case.capitalize()} ({churn[case] * 100:.1f}%) | €{e['cac']:.2f} | €{e['ltv']:.0f} | "
                 f"{e['ratio']:.1f}x | {e['payback']:.1f} |")
+
+    prices = sorted({sc["price_increase_pct"] for sc in scenarios})
+    cases = list(dict.fromkeys(sc["elasticity_case"] for sc in scenarios))
+    by = {(sc["price_increase_pct"], sc["elasticity_case"]): sc for sc in scenarios}
+    head = "| Price increase | " + " | ".join(
+        f"{c.capitalize()} ({by[(prices[0], c)]['elasticity']:.1f})" for c in cases) + " |"
+    sep = "|---|" + "---|" * len(cases)
+    body = "\n".join(
+        f"| {p}% | " + " | ".join(f"{by[(p, c)]['steady_state_gross_profit_change_pct']:+.1f}%" for c in cases) + " |"
+        for p in prices)
+    scenario_table = "\n".join([head, sep, body])
+    mid_price = 10 if 10 in prices else prices[len(prices) // 2]
+    mid_be = by[(mid_price, cases[0])]["break_even_elasticity"]
+    max_price = prices[-1]
+    worst_loss = by[(max_price, cases[-1])]["steady_state_gross_profit_change_pct"]
+    base_mid = by[(mid_price, "base")]["steady_state_gross_profit_change_pct"]
+    min_12m = min(sc["gross_profit_12m_change_eur_m"] for sc in scenarios)
+    max_12m = max(sc["gross_profit_12m_change_eur_m"] for sc in scenarios)
 
     md = f"""# Spotify unit economics: key findings
 
@@ -348,6 +425,24 @@ Consequences:
 - We have no data on how many ad-supported users convert to Premium, so this analysis can't
   value the free tier as a pipeline.
 
+## 4. Price increase scenarios (estimates)
+
+From `outputs/scenarios.csv`. Holds Premium gross margin % constant (music costs are largely a
+share of revenue), assumes the price increase passes fully into ARPU, and uses the elasticity
+range in `assumptions.md`. Change in long-run Premium gross profit:
+
+{scenario_table}
+
+- **The verdict depends on elasticity, not churn.** Long-run gross profit changes by
+  (1 + price increase) × (1 − |elasticity| × price increase), whatever the churn level, and whether
+  lost demand shows up as more cancellations or fewer sign-ups. A {mid_price}% increase pays off as long as
+  elasticity is less negative than {mid_be:.2f}.
+- **Only the high-sensitivity case (−1.0) loses money**, and only slightly ({worst_loss:+.1f}% at
+  {max_price}%). The base case (−0.5) gains {base_mid:+.1f}% at {mid_price}%.
+- **Twelve-month results can't tell you whether it worked.** Gross profit from today's subscribers rises
+  in the first year in every scenario (by €{min_12m:,.0f}M–€{max_12m:,.0f}M), including those that lose
+  money long-term, because higher churn compounds slowly.
+
 ## What this analysis can't tell you
 
 - **Whether retention improved or worsened.** Churn is an assumption held constant.
@@ -361,13 +456,58 @@ Consequences:
     OUT_MD.write_text(md)
 
 
+def build_scenarios(rows, churn, elasticities):
+    """Price-increase scenarios at base-case churn, latest-four-quarter gross profit."""
+    latest = rows[-4:]
+    gp = mean(latest, "gross_profit_per_sub_month_eur")
+    c = churn["base"]
+    subs = rows[-1]["premium_subscribers_m"]
+    out = []
+    for price in PRICE_STEPS_PCT:
+        for case, e in elasticities.items():
+            dc = implied_churn_increase(c, e, price)
+            r = price_scenario(gp, c, subs, price, dc)
+            out.append({
+                "price_increase_pct": price,
+                "elasticity_case": case,
+                "elasticity": e,
+                "baseline_monthly_churn_pct": c * 100,
+                "implied_churn_increase_pp": dc * 100,
+                "new_monthly_churn_pct": r["new_churn"] * 100,
+                "gross_profit_per_sub_month_before_eur": gp,
+                "gross_profit_per_sub_month_after_eur": r["gp_month_after"],
+                "lifetime_gross_profit_per_sub_before_eur": r["lifetime_gp_before"],
+                "lifetime_gross_profit_per_sub_after_eur": r["lifetime_gp_after"],
+                "steady_state_gross_profit_change_pct": r["steady_state_change_pct"],
+                "gross_profit_12m_current_subs_before_eur_m": r["gp12_before"],
+                "gross_profit_12m_current_subs_after_eur_m": r["gp12_after"],
+                "gross_profit_12m_change_eur_m": r["gp12_after"] - r["gp12_before"],
+                "break_even_churn_increase_pp": r["break_even_churn_increase"] * 100,
+                "break_even_elasticity": r["break_even_elasticity"],
+                "profitable_steady_state": "yes" if r["steady_state_change_pct"] > 0 else "no",
+                "inputs": f"GP/sub/month = avg {window_label(latest)}; churn = base case; subscribers = {label(rows[-1]['quarter'])}",
+            })
+    return out
+
+
+def write_scenarios(scenarios):
+    with open(OUT_SCENARIOS, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(list(scenarios[0]))
+        for s in scenarios:
+            writer.writerow([fmt(v, 3) if isinstance(v, float) else v for v in s.values()])
+
+
 def main():
     with open(METRICS_CSV) as f:
         metrics = list(csv.DictReader(f))
     churn = read_churn_cases(ASSUMPTIONS_MD)
+    elasticities = read_elasticity_cases(ASSUMPTIONS_MD)
     rows = build_rows(metrics, churn)
+    scenarios = build_scenarios(rows, churn, elasticities)
     write_csv(rows)
-    write_summary(rows, churn)
+    write_scenarios(scenarios)
+    write_summary(rows, churn, scenarios)
 
     headers = ["GP/sub/mo", "GP/S&M", "S&M/sub/mo", "CAC", "LTV:CAC", "Payback", "Ad €/user/mo"]
     keys = ["gross_profit_per_sub_month_eur", "premium_gp_to_sm", "sm_per_avg_sub_month_eur", "cac_eur_base",
@@ -379,7 +519,13 @@ def main():
         flag = "*" if row["sm_distortion_flag"] else ""
         print(f"{row['quarter']}  " + "  ".join((fmt(row[k]) or "—").rjust(12) for k in keys) + f"  {flag}")
     print("\n* S&M distorted by one-off or Social Charges; see summary.md")
-    print(f"\nWrote {OUT_CSV.relative_to(ROOT)} and {OUT_MD.relative_to(ROOT)}")
+    print("\nPrice scenarios (base churn):")
+    print("price  elasticity        churn +pp  steady-state GP  12m GP change  profitable")
+    for sc in scenarios:
+        print(f"{sc['price_increase_pct']:>4}%  {sc['elasticity_case']:<16} {sc['implied_churn_increase_pp']:>8.2f}  "
+              f"{sc['steady_state_gross_profit_change_pct']:>+14.1f}%  {sc['gross_profit_12m_change_eur_m']:>+12,.0f}M  "
+              f"{sc['profitable_steady_state']:>9}")
+    print(f"\nWrote {OUT_CSV.relative_to(ROOT)}, {OUT_SCENARIOS.relative_to(ROOT)} and {OUT_MD.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
